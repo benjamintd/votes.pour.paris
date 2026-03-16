@@ -151,6 +151,7 @@
 
 <div id="legend">
   <h3>Têtes de liste</h3>
+  <div id="legend-subtitle" style="font-size:11px;color:#999;margin-bottom:6px;display:none;">Suffrages exprimés à l'écran</div>
   <div id="legend-list"></div>
 </div>
 
@@ -198,7 +199,17 @@ function scheduleLegendUpdate() {
   debounceTimer = setTimeout(doLegendUpdate, 300);
 }
 
+const PARIS_BOUNDS = [2.239838, 48.810481, 2.434845, 48.907157];
+const legendSubtitle = document.getElementById("legend-subtitle");
+
+function isViewContainsParis() {
+  const b = map.getBounds();
+  return b.getWest() <= PARIS_BOUNDS[0] && b.getSouth() <= PARIS_BOUNDS[1] &&
+         b.getEast() >= PARIS_BOUNDS[2] && b.getNorth() >= PARIS_BOUNDS[3];
+}
+
 function doLegendUpdate() {
+  legendSubtitle.style.display = isViewContainsParis() ? "none" : "block";
   // Count by color directly — avoids creating feature wrapper objects
   const counts = {};
   for (const c of candidates) counts[c.color] = 0;
