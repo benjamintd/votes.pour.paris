@@ -191,16 +191,12 @@ candidates.forEach((c, i) => {
 });
 legendList.style.height = (candidates.length * ROW_H) + "px";
 
-const knownKeys = new Set(candidates.filter(c => c.key !== "_autres").map(c => c.key));
-
-let debounceTimer = null;
-function scheduleLegendUpdate() {
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(doLegendUpdate, 300);
-}
-
 const PARIS_BOUNDS = [2.239838, 48.810481, 2.434845, 48.907157];
 const legendSubtitle = document.getElementById("legend-subtitle");
+
+// Pre-loaded BV data: [lon, lat, {candidateKey: voteCount, ...}] per BV
+let bvData = null;
+fetch("./bv_votes.json").then(r => r.json()).then(data => { bvData = data; });
 
 function isViewContainsParis() {
   const b = map.getBounds();
@@ -209,39 +205,37 @@ function isViewContainsParis() {
 }
 
 function doLegendUpdate() {
-  legendSubtitle.style.display = isViewContainsParis() ? "none" : "block";
-  // Count by color directly — avoids creating feature wrapper objects
-  const counts = {};
-  for (const c of candidates) counts[c.color] = 0;
-  const colorToKey = {};
-  for (const c of candidates) colorToKey[c.color] = c.key;
+  if (!bvData) return;
+  const containsParis = isViewContainsParis();
+  legendSubtitle.style.display = containsParis ? "none" : "block";
 
-  // Query only the "c" property to minimize overhead
-  const features = map.queryRenderedFeatures({ layers: ["vote-dots"] });
-  const len = features.length;
-  if (!len) return;
+  const b = map.getBounds();
+  const w = b.getWest(), s = b.getSouth(), e = b.getEast(), n = b.getNorth();
 
-  for (let i = 0; i < len; i++) {
-    const color = features[i].properties.c;
-    if (color in counts) counts[color]++;
-  }
-
-  // Map back to candidate keys
+  // Sum votes for BVs whose centroid is in the viewport
   const keyCounts = {};
-  let autresCount = 0;
-  for (const c of candidates) {
-    if (c.key === "_autres") continue;
-    keyCounts[c.key] = counts[c.color] || 0;
+  for (const c of candidates) keyCounts[c.key] = 0;
+  let total = 0;
+
+  for (let i = 0; i < bvData.length; i++) {
+    const bv = bvData[i];
+    const lon = bv[0], lat = bv[1];
+    if (lon < w || lon > e || lat < s || lat > n) continue;
+    const votes = bv[2];
+    for (const key in votes) {
+      keyCounts[key] = (keyCounts[key] || 0) + votes[key];
+      total += votes[key];
+    }
   }
-  // Autres = anything unmatched (shouldn't happen, but safe)
-  keyCounts["_autres"] = counts["#999999"] || 0;
+
+  if (!total) return;
 
   const sorted = candidates.slice().sort((a, b) => keyCounts[b.key] - keyCounts[a.key]);
   const maxCount = keyCounts[sorted[0].key];
 
   for (let rank = 0; rank < sorted.length; rank++) {
     const c = sorted[rank];
-    const pct = (keyCounts[c.key] / len * 100);
+    const pct = keyCounts[c.key] / total * 100;
     pctEls[c.key].textContent = pct >= 0.1 ? pct.toFixed(1) + "%" : "<0.1%";
     barEls[c.key].style.width = maxCount > 0 ? (keyCounts[c.key] / maxCount * 100) + "%" : "0%";
     rows[c.key].style.transform = `translateY(${rank * ROW_H}px)`;
@@ -323,8 +317,8 @@ const map = new maplibregl.Map({
 
 map.addControl(new maplibregl.NavigationControl(), "top-right");
 
-map.on("idle", scheduleLegendUpdate);
-map.on("moveend", scheduleLegendUpdate);
+map.on("moveend", doLegendUpdate);
+map.on("load", doLegendUpdate);
 </script>
 </body>
 </html>
