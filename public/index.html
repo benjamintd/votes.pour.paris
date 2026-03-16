@@ -47,7 +47,7 @@
       line-height: 1.6;
       box-shadow: 0 2px 12px rgba(0,0,0,0.12);
       z-index: 10;
-      max-width: 260px;
+      width: 340px;
     }
     #legend h3 {
       font-size: 14px;
@@ -55,24 +55,59 @@
       margin-bottom: 8px;
       color: #222;
     }
-    .legend-item {
+    #legend-list {
+      position: relative;
+    }
+    .legend-row {
       display: flex;
       align-items: center;
       gap: 8px;
+      height: 28px;
+      transition: transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
+      position: absolute;
+      left: 0;
+      right: 0;
     }
     .legend-dot {
-      width: 10px;
-      height: 10px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       flex-shrink: 0;
     }
-    .legend-label {
+    .legend-name {
       color: #333;
+      flex-shrink: 0;
+      width: 110px;
+      font-size: 13px;
+    }
+    .legend-bar-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .legend-bar-track {
+      flex: 1;
+      height: 14px;
+      background: #f0eeeb;
+      border-radius: 3px;
+      overflow: hidden;
+      display: block;
+    }
+    .legend-bar-fill {
+      display: block;
+      height: 100%;
+      border-radius: 3px;
+      width: 0%;
+      transition: width 0.4s cubic-bezier(0.25, 0.1, 0.25, 1);
     }
     .legend-pct {
-      color: #999;
-      margin-left: auto;
+      color: #666;
       font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      min-width: 42px;
+      text-align: right;
+      flex-shrink: 0;
     }
     #title {
       position: absolute;
@@ -116,30 +151,91 @@
 
 <div id="legend">
   <h3>Têtes de liste</h3>
+  <div id="legend-list"></div>
 </div>
 
 <script>
 const candidates = [
-  { name: "E. Grégoire", color: "#e4607b", pct: "38.0%" },
-  { name: "R. Dati",     color: "#0055A4", pct: "25.5%" },
-  { name: "S. Chikirou", color: "#c9462c", pct: "11.7%" },
-  { name: "P.-Y. Bournazel", color: "#FFB800", pct: "11.3%" },
-  { name: "S. Knafo",    color: "#1a1a2e", pct: "10.4%" },
-  { name: "T. Mariani",  color: "#0D378A", pct: "1.6%" },
-  { name: "Autres",      color: "#999999", pct: "1.5%" },
+  { name: "E. Grégoire", color: "#e4607b", key: "Grégoire" },
+  { name: "R. Dati",     color: "#0055A4", key: "Dati" },
+  { name: "S. Chikirou", color: "#c9462c", key: "Chikirou" },
+  { name: "P.-Y. Bournazel", color: "#FFB800", key: "Bournazel" },
+  { name: "S. Knafo",    color: "#1a1a2e", key: "Knafo" },
+  { name: "T. Mariani",  color: "#0D378A", key: "Mariani" },
+  { name: "Autres",      color: "#999999", key: "_autres" },
 ];
 
-const legend = document.getElementById("legend");
-candidates.forEach(c => {
-  const item = document.createElement("div");
-  item.className = "legend-item";
-  item.innerHTML = `
+const ROW_H = 28;
+const legendList = document.getElementById("legend-list");
+const rows = {};
+const pctEls = {};
+const barEls = {};
+
+candidates.forEach((c, i) => {
+  const row = document.createElement("div");
+  row.className = "legend-row";
+  row.style.transform = `translateY(${i * ROW_H}px)`;
+  row.innerHTML = `
     <span class="legend-dot" style="background:${c.color}"></span>
-    <span class="legend-label">${c.name}</span>
-    <span class="legend-pct">${c.pct}</span>
+    <span class="legend-name">${c.name}</span>
+    <span class="legend-bar-wrap">
+      <span class="legend-bar-track"><span class="legend-bar-fill" style="background:${c.color}"></span></span>
+      <span class="legend-pct">–</span>
+    </span>
   `;
-  legend.appendChild(item);
+  legendList.appendChild(row);
+  rows[c.key] = row;
+  pctEls[c.key] = row.querySelector(".legend-pct");
+  barEls[c.key] = row.querySelector(".legend-bar-fill");
 });
+legendList.style.height = (candidates.length * ROW_H) + "px";
+
+const knownKeys = new Set(candidates.filter(c => c.key !== "_autres").map(c => c.key));
+
+let debounceTimer = null;
+function scheduleLegendUpdate() {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(doLegendUpdate, 300);
+}
+
+function doLegendUpdate() {
+  // Count by color directly — avoids creating feature wrapper objects
+  const counts = {};
+  for (const c of candidates) counts[c.color] = 0;
+  const colorToKey = {};
+  for (const c of candidates) colorToKey[c.color] = c.key;
+
+  // Query only the "c" property to minimize overhead
+  const features = map.queryRenderedFeatures({ layers: ["vote-dots"] });
+  const len = features.length;
+  if (!len) return;
+
+  for (let i = 0; i < len; i++) {
+    const color = features[i].properties.c;
+    if (color in counts) counts[color]++;
+  }
+
+  // Map back to candidate keys
+  const keyCounts = {};
+  let autresCount = 0;
+  for (const c of candidates) {
+    if (c.key === "_autres") continue;
+    keyCounts[c.key] = counts[c.color] || 0;
+  }
+  // Autres = anything unmatched (shouldn't happen, but safe)
+  keyCounts["_autres"] = counts["#999999"] || 0;
+
+  const sorted = candidates.slice().sort((a, b) => keyCounts[b.key] - keyCounts[a.key]);
+  const maxCount = keyCounts[sorted[0].key];
+
+  for (let rank = 0; rank < sorted.length; rank++) {
+    const c = sorted[rank];
+    const pct = (keyCounts[c.key] / len * 100);
+    pctEls[c.key].textContent = pct >= 0.1 ? pct.toFixed(1) + "%" : "<0.1%";
+    barEls[c.key].style.width = maxCount > 0 ? (keyCounts[c.key] / maxCount * 100) + "%" : "0%";
+    rows[c.key].style.transform = `translateY(${rank * ROW_H}px)`;
+  }
+}
 
 const protocol = new pmtiles.Protocol();
 maplibregl.addProtocol("pmtiles", protocol.tile);
@@ -215,6 +311,9 @@ const map = new maplibregl.Map({
 });
 
 map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+map.on("idle", scheduleLegendUpdate);
+map.on("moveend", scheduleLegendUpdate);
 </script>
 </body>
 </html>
