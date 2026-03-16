@@ -1,0 +1,7 @@
+data/
+scripts/
+tiles/
+!public/tiles/
+*.pyc
+__pycache__/
+.DS_Store

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Municipales Paris 2026 – Carte des votes, 1er tour</title>
+  <meta name="description" content="Carte interactive des résultats du premier tour des élections municipales 2026 à Paris. Un point par vote, placé dans les bâtiments de chaque bureau de vote." />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Municipales Paris 2026 – Carte des votes" />
+  <meta property="og:description" content="815 448 suffrages exprimés au 1er tour, un point par vote. Explorez les résultats bureau de vote par bureau de vote." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://votes.pour.paris" />
+  <meta property="og:image" content="https://votes.pour.paris/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="fr_FR" />
+  <meta property="og:site_name" content="votes.pour.paris" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Municipales Paris 2026 – Carte des votes" />
+  <meta name="twitter:description" content="815 448 suffrages exprimés au 1er tour, un point par vote." />
+  <meta name="twitter:image" content="https://votes.pour.paris/og.png" />
+
+  <link rel="canonical" href="https://votes.pour.paris" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#f5f3f0" />
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    #map { width: 100vw; height: 100vh; }
+
+    #legend {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(8px);
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-size: 13px;
+      line-height: 1.6;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      z-index: 10;
+      max-width: 260px;
+    }
+    #legend h3 {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #222;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .legend-label {
+      color: #333;
+    }
+    .legend-pct {
+      color: #999;
+      margin-left: auto;
+      font-variant-numeric: tabular-nums;
+    }
+    #title {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(8px);
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #222;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      z-index: 10;
+      text-align: center;
+      white-space: nowrap;
+    }
+    #title small {
+      font-weight: 400;
+      color: #777;
+      font-size: 12px;
+      display: block;
+      margin-top: 2px;
+    }
+    @media (max-width: 600px) {
+      #title { font-size: 13px; padding: 8px 14px; }
+      #title small { font-size: 11px; }
+      #legend { bottom: 16px; left: 16px; padding: 10px 14px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="title">
+  Municipales 2026 – Conseil de Paris – 1<sup>er</sup> tour
+  <small>1 point = 1 vote · 815 448 suffrages exprimés</small>
+</div>
+
+<div id="legend">
+  <h3>Têtes de liste</h3>
+</div>
+
+<script>
+const candidates = [
+  { name: "E. Grégoire", color: "#e4607b", pct: "38.0%" },
+  { name: "R. Dati",     color: "#0055A4", pct: "25.5%" },
+  { name: "S. Chikirou", color: "#c9462c", pct: "11.7%" },
+  { name: "P.-Y. Bournazel", color: "#FFB800", pct: "11.3%" },
+  { name: "S. Knafo",    color: "#1a1a2e", pct: "10.4%" },
+  { name: "T. Mariani",  color: "#0D378A", pct: "1.6%" },
+  { name: "Autres",      color: "#999999", pct: "1.5%" },
+];
+
+const legend = document.getElementById("legend");
+candidates.forEach(c => {
+  const item = document.createElement("div");
+  item.className = "legend-item";
+  item.innerHTML = `
+    <span class="legend-dot" style="background:${c.color}"></span>
+    <span class="legend-label">${c.name}</span>
+    <span class="legend-pct">${c.pct}</span>
+  `;
+  legend.appendChild(item);
+});
+
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol("pmtiles", protocol.tile);
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: {
+    version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+      "carto": {
+        type: "raster",
+        tiles: ["https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png"],
+        tileSize: 256,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
+      },
+      "carto-labels": {
+        type: "raster",
+        tiles: ["https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png"],
+        tileSize: 256
+      },
+      "votes": {
+        type: "vector",
+        url: "pmtiles://./tiles/dots.pmtiles"
+      }
+    },
+    layers: [
+      {
+        id: "background",
+        type: "background",
+        paint: { "background-color": "#f5f3f0" }
+      },
+      {
+        id: "carto-base",
+        type: "raster",
+        source: "carto",
+        paint: { "raster-opacity": 0.6 }
+      },
+      {
+        id: "vote-dots",
+        type: "circle",
+        source: "votes",
+        "source-layer": "votes",
+        paint: {
+          "circle-radius": [
+            "interpolate", ["exponential", 2], ["zoom"],
+            10, 0.4,
+            13, 1.2,
+            16, 4
+          ],
+          "circle-color": ["get", "c"],
+          "circle-opacity": [
+            "interpolate", ["linear"], ["zoom"],
+            10, 0.6,
+            14, 0.75,
+            16, 0.85
+          ]
+        }
+      },
+      {
+        id: "carto-labels",
+        type: "raster",
+        source: "carto-labels",
+        paint: { "raster-opacity": 0.9 }
+      }
+    ]
+  },
+  center: [2.3488, 48.8566],
+  zoom: 12,
+  minZoom: 10,
+  maxZoom: 18,
+  hash: true
+});
+
+map.addControl(new maplibregl.NavigationControl(), "top-right");
+</script>
+</body>
+</html>
